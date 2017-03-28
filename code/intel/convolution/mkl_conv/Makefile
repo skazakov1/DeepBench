@@ -45,6 +45,16 @@ EXTRACXXFLAGS = -I$(MKLDNNROOT)/include -DUSE_MKLDNN
 EXTRALIB = -L$(MKLDNNROOT)/lib -lmkldnn
 endif
 
+ifeq ($(CONVLIB),LIBXSMM)
+ifeq ($(LIBXSMMROOT),)
+	$(error LIBXSMMROOT is empty. Please build LIBXSMM from \
+		https://github.com/hfp/libxsmm and point LIBXSMMROOT \
+		to the install directory.)
+endif
+EXTRACXXFLAGS = -I$(LIBXSMMROOT)/include -DUSE_LIBXSMM -fopenmp
+EXTRALIB = -L$(LIBXSMMROOT)/lib -lxsmm -lxsmmnoblas -lpthread
+endif
+
 INPUT_H ?= input.h
 
 ifeq ($(DEBUG), 1)

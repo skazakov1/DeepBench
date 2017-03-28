@@ -287,6 +287,190 @@ static bench_result bench_conv(conv_problem prob, int mode, bool skip_padding)
 }
 #endif
 
+#ifdef USE_LIBXSMM
+#ifdef _OPENMP
+#include "omp.h"
+#endif
+#include "libxsmm.h"
+
+#define STR1(x) #x
+#define STR(x) STR1(x)
+
+#define CHECK(libxsmm_dnn_call) do { \
+    libxsmm_dnn_err_t e = libxsmm_dnn_call; \
+    if (e != LIBXSMM_DNN_SUCCESS && e!= LIBXSMM_DNN_WARN_FALLBACK) { \
+        printf("[%s:%d] %s = %s\n", __FILE__, __LINE__, \
+                STR(libxsmm_dnn_call), libxsmm_dnn_get_error(e)); \
+        throw std::runtime_error(STR(libxsmm_dnn_call)); \
+    } \
+} while (0)
+
+static bench_result bench_conv(conv_problem prob, int mode, bool skip_padding)
+{
+    libxsmm_dnn_conv_desc conv_desc;
+    conv_desc.N = prob.minibatch;
+    conv_desc.C = prob.ic;
+    conv_desc.H = prob.h;
+    conv_desc.W = prob.w;
+    conv_desc.K = prob.oc;
+    conv_desc.S = prob.fw;
+    conv_desc.R = prob.fh;
+    conv_desc.u = prob.stride;
+    conv_desc.v = prob.stride;
+    conv_desc.pad_h = prob.padd;
+    conv_desc.pad_w = prob.padd;
+#ifdef LIBXSMM_PADD_INPUT
+    conv_desc.pad_h_in = prob.padd;
+    conv_desc.pad_w_in = prob.padd;
+#else
+    conv_desc.pad_h_in = 0;
+    conv_desc.pad_w_in = 0;
+#endif
+    conv_desc.pad_h_out = 0;
+    conv_desc.pad_w_out = 0;
+#ifdef _OPENMP
+    conv_desc.threads = omp_get_max_threads();
+#else
+    conv_desc.threads = 1;
+#endif
+#ifdef LIBXSMM_FORCE_ALGO_DIRECT
+    conv_desc.algo = LIBXSMM_DNN_CONV_ALGO_DIRECT;
+#else
+    conv_desc.algo = LIBXSMM_DNN_CONV_ALGO_AUTO;
+#endif
+    conv_desc.buffer_format = LIBXSMM_DNN_TENSOR_FORMAT_LIBXSMM;
+    conv_desc.filter_format = LIBXSMM_DNN_TENSOR_FORMAT_LIBXSMM;
+    conv_desc.fuse_ops = LIBXSMM_DNN_CONV_FUSE_NONE;
+    conv_desc.options = LIBXSMM_DNN_CONV_OPTION_NONE;
+    conv_desc.options = LIBXSMM_DNN_CONV_OPTION_WU_EXT_FILTER_REDUCE;
+    conv_desc.datatype = LIBXSMM_DNN_DATATYPE_F32;
+
+    int IW = conv_desc.W;
+    int IWp = IW + conv_desc.pad_w_in;
+    int IH = conv_desc.H;
+    int IHp = IH + conv_desc.pad_h_in;
+
+    int OW = calc_out_dim(conv_desc.W,
+            conv_desc.S, conv_desc.pad_w, conv_desc.u);
+    int OWp = OW + conv_desc.pad_w_out;
+    int OH = calc_out_dim(conv_desc.H,
+            conv_desc.R, conv_desc.pad_h, conv_desc.v);
+    int OHp = OH + conv_desc.pad_h_out;
+
+    size_t input_libxsmm_len = IWp * IHp * conv_desc.C * conv_desc.N;
+    float *input_libxsmm = (float *)libxsmm_aligned_malloc(
+            sizeof(float) * input_libxsmm_len, 2UL * 1024 * 1024);
+    rand_fill(input_libxsmm, input_libxsmm_len);
+
+    size_t output_libxsmm_len = OWp * OHp * conv_desc.K * conv_desc.N;
+    float *output_libxsmm = (float *)libxsmm_aligned_malloc(
+            sizeof(float) * output_libxsmm_len, 2UL * 1024 * 1024);
+    rand_fill(output_libxsmm, output_libxsmm_len);
+
+    size_t filter_libxsmm_len
+        = conv_desc.S * conv_desc.R * conv_desc.C * conv_desc.K;
+    float *filter_libxsmm = (float *)libxsmm_aligned_malloc(
+            sizeof(float) * filter_libxsmm_len, 2UL * 1024 * 1024);
+    rand_fill(filter_libxsmm, filter_libxsmm_len);
+
+    libxsmm_dnn_err_t status;
+    libxsmm_dnn_layer *libxsmm_handle
+        = libxsmm_dnn_create_conv_layer(conv_desc, &status);
+    CHECK(status);
+
+    libxsmm_dnn_buffer *libxsmm_input
+        = libxsmm_dnn_link_buffer(libxsmm_handle, LIBXSMM_DNN_INPUT,
+                input_libxsmm, LIBXSMM_DNN_TENSOR_FORMAT_LIBXSMM_PTR,
+                &status);
+    CHECK(status);
+
+    libxsmm_dnn_buffer *libxsmm_output
+        = libxsmm_dnn_link_buffer(libxsmm_handle, LIBXSMM_DNN_OUTPUT,
+                output_libxsmm, LIBXSMM_DNN_TENSOR_FORMAT_LIBXSMM_PTR,
+                &status);
+    CHECK(status);
+
+    libxsmm_dnn_filter *libxsmm_filter
+        = libxsmm_dnn_link_filter(libxsmm_handle, LIBXSMM_DNN_FILTER,
+                filter_libxsmm, LIBXSMM_DNN_TENSOR_FORMAT_LIBXSMM_PTR,
+                &status);
+    CHECK(status);
+
+    CHECK(libxsmm_dnn_bind_buffer(libxsmm_handle, libxsmm_input,
+                LIBXSMM_DNN_REGULAR_INPUT));
+    CHECK(libxsmm_dnn_bind_buffer(libxsmm_handle, libxsmm_input,
+                LIBXSMM_DNN_GRADIENT_INPUT));
+    CHECK(libxsmm_dnn_bind_buffer(libxsmm_handle, libxsmm_output,
+                LIBXSMM_DNN_REGULAR_OUTPUT));
+    CHECK(libxsmm_dnn_bind_buffer(libxsmm_handle, libxsmm_output,
+                LIBXSMM_DNN_GRADIENT_OUTPUT));
+    CHECK(libxsmm_dnn_bind_filter(libxsmm_handle, libxsmm_filter,
+                LIBXSMM_DNN_REGULAR_FILTER));
+    CHECK(libxsmm_dnn_bind_filter(libxsmm_handle, libxsmm_filter,
+                LIBXSMM_DNN_GRADIENT_FILTER));
+
+    size_t scratch_size = libxsmm_dnn_get_scratch_size(
+            libxsmm_handle, LIBXSMM_DNN_COMPUTE_KIND_ALL, &status);
+    CHECK(status);
+    void *scratch = (void *)libxsmm_aligned_malloc(scratch_size,
+            2UL * 1024 * 1024);
+    CHECK(libxsmm_dnn_bind_scratch(libxsmm_handle,
+                LIBXSMM_DNN_COMPUTE_KIND_ALL, scratch));
+
+    libxsmm_dnn_compute_kind compute_kind;
+    if (mode == FWD_CONVOLUTION)
+        compute_kind = LIBXSMM_DNN_COMPUTE_KIND_FWD;
+    else if (mode == BWD_D_CONVOLUTION)
+        compute_kind = LIBXSMM_DNN_COMPUTE_KIND_BWD;
+    else if (mode == BWD_F_CONVOLUTION)
+        compute_kind = LIBXSMM_DNN_COMPUTE_KIND_UPD;
+    else
+        throw std::runtime_error("Invalid benchmarking mode");
+
+    auto result = timeit(prob.iters, calc_flops(skip_padding, prob), [&](){
+#ifdef _OPENMP
+#pragma omp parallel
+#endif
+                {
+#ifdef _OPENMP
+                    int tid = omp_get_thread_num();
+#else
+                    int tid = 0;
+#endif
+                    CHECK(libxsmm_dnn_execute_st(libxsmm_handle,
+                                compute_kind, 0, tid));
+                }
+            });
+
+    CHECK(libxsmm_dnn_release_scratch(libxsmm_handle,
+                LIBXSMM_DNN_COMPUTE_KIND_ALL));
+    CHECK(libxsmm_dnn_release_buffer(libxsmm_handle,
+                LIBXSMM_DNN_REGULAR_INPUT));
+    CHECK(libxsmm_dnn_release_buffer(libxsmm_handle,
+                LIBXSMM_DNN_GRADIENT_INPUT));
+    CHECK(libxsmm_dnn_release_buffer(libxsmm_handle,
+                LIBXSMM_DNN_REGULAR_OUTPUT));
+    CHECK(libxsmm_dnn_release_buffer(libxsmm_handle,
+                LIBXSMM_DNN_GRADIENT_OUTPUT));
+    CHECK(libxsmm_dnn_release_filter(libxsmm_handle,
+                LIBXSMM_DNN_REGULAR_FILTER));
+    CHECK(libxsmm_dnn_release_filter(libxsmm_handle,
+                LIBXSMM_DNN_GRADIENT_FILTER));
+
+    CHECK(libxsmm_dnn_destroy_buffer(libxsmm_input));
+    CHECK(libxsmm_dnn_destroy_buffer(libxsmm_output));
+    CHECK(libxsmm_dnn_destroy_filter(libxsmm_filter));
+    CHECK(libxsmm_dnn_destroy_conv_layer(libxsmm_handle));
+
+    libxsmm_free(scratch);
+    libxsmm_free(input_libxsmm);
+    libxsmm_free(filter_libxsmm);
+    libxsmm_free(output_libxsmm);
+
+    return result;
+}
+#endif
+
 static void usage()
 {
     printf("Usage: <executable> "
