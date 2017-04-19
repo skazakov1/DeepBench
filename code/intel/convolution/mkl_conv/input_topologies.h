@@ -32,6 +32,12 @@ struct conv_problem {
 };
 
 static const std::vector<conv_problem> conv_problems = {
+    // Topology: overfeat
+    {1, 256, 231, 231, 3, 96, 11, 11, 4, 0, 1000, "overfeat:conv1"},
+    {1, 256, 28, 28, 96, 256, 5, 5, 1, 0, 1000, "overfeat:conv2"},
+    {1, 256, 12, 12, 256, 512, 3, 3, 1, 1, 1000, "overfeat:conv3"},
+    {1, 256, 12, 12, 512, 1024, 3, 3, 1, 1, 1000, "overfeat:conv4"},
+    {1, 256, 12, 12, 1024, 1024, 3, 3, 1, 1, 1000, "overfeat:conv5"},
     // Topology: alexnet
     {1, 256, 227, 227, 3, 96, 11, 11, 4, 0, 1000, "alexnet:conv1"},
     {2, 256, 27, 27, 96, 256, 5, 5, 1, 2, 1000, "alexnet:conv2"},
