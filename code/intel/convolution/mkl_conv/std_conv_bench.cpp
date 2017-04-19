@@ -478,9 +478,29 @@ static void usage()
     exit(-1);
 }
 
+static bool match_filter_str(const std::string &str, const std::string &filter)
+{
+    size_t filter_len = filter.length();
+
+    if (filter[filter.length() - 1] == '$') {
+        filter_len--;
+        if (str.length() != filter_len)
+            return false;
+    }
+
+    // aka lame startswith
+    bool r = true;
+    for (int i = 0; i < filter_len; i++)
+        if (i >= str.length() || str[i] != filter[i]) {
+            r = false;
+            break;
+        }
+    return r;
+}
+
 int main(int argc, char **argv)
 {
-    if (argc > 3)
+    if (argc > 5)
         usage();
 
     bool skip_padding = false;
@@ -503,14 +523,37 @@ int main(int argc, char **argv)
             usage();
     }
 
+    std::vector<int> enabled_modes
+        = {FWD_CONVOLUTION, BWD_F_CONVOLUTION, BWD_D_CONVOLUTION};
+    if (argc > 3) {
+        if (argv[3] == std::string("--fwd"))
+            enabled_modes = {FWD_CONVOLUTION};
+        else if (argv[3] == std::string("--bwd_d"))
+            enabled_modes = {BWD_D_CONVOLUTION};
+        else if (argv[3] == std::string("--bwd_f"))
+            enabled_modes = {BWD_F_CONVOLUTION};
+        else if (argv[3] == std::string("--all"))
+            enabled_modes
+                = {FWD_CONVOLUTION, BWD_F_CONVOLUTION, BWD_D_CONVOLUTION};
+        else
+            usage();
+    }
+
+    std::string filter_str;
+    if (argc > 4)
+        filter_str = argv[4];
+
     const char *conv_mode_strs[] = {"FWD", "BWD_F", "BWD_D"};
     const char *skip_padding_strs[]
         = {"w/ padding in flops", "w/o padding in flops"};
 
-    for (auto m : {FWD_CONVOLUTION, BWD_F_CONVOLUTION, BWD_D_CONVOLUTION}) {
+    for (auto m : enabled_modes) {
         if (!csv_output)
             printf(" %s Convolution\n", conv_mode_strs[m]);
         for (const auto& p : conv_problems) {
+            if (!match_filter_str(p.name, filter_str))
+                continue;
+
             auto r = bench_conv(p, m, skip_padding);
             if (csv_output)
                 printf("%s,%d,\"%s\",%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%e,%e,%e,%e\n",
