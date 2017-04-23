@@ -480,22 +480,33 @@ static void usage()
 
 static bool match_filter_str(const std::string &str, const std::string &filter)
 {
+    bool negative_match = false;
     size_t filter_len = filter.length();
+    size_t filter_start_idx = 0;
+
+    if (filter[0] == '!') {
+        filter_start_idx++;
+        filter_len--;
+        negative_match = true;
+    }
 
     if (filter[filter.length() - 1] == '$') {
         filter_len--;
         if (str.length() != filter_len)
-            return false;
+            return negative_match ? true : false;
     }
 
     // aka lame startswith
     bool r = true;
-    for (int i = 0; i < filter_len; i++)
-        if (i >= str.length() || str[i] != filter[i]) {
+    for (int i = filter_start_idx; i < filter_start_idx + filter_len; i++)
+        if (i - filter_start_idx >= str.length()
+                || str[i - filter_start_idx] != filter[i])
+        {
             r = false;
             break;
         }
-    return r;
+
+    return negative_match ? !r : r;
 }
 
 int main(int argc, char **argv)
