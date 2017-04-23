@@ -346,16 +346,16 @@ static bench_result bench_conv(conv_problem prob, int mode, bool skip_padding)
     conv_desc.datatype = LIBXSMM_DNN_DATATYPE_F32;
 
     int IW = conv_desc.W;
-    int IWp = IW + conv_desc.pad_w_in;
+    int IWp = IW + 2 * conv_desc.pad_w_in;
     int IH = conv_desc.H;
-    int IHp = IH + conv_desc.pad_h_in;
+    int IHp = IH + 2 * conv_desc.pad_h_in;
 
     int OW = calc_out_dim(conv_desc.W,
             conv_desc.S, conv_desc.pad_w, conv_desc.u);
-    int OWp = OW + conv_desc.pad_w_out;
+    int OWp = OW + 2 * conv_desc.pad_w_out;
     int OH = calc_out_dim(conv_desc.H,
             conv_desc.R, conv_desc.pad_h, conv_desc.v);
-    int OHp = OH + conv_desc.pad_h_out;
+    int OHp = OH + 2 * conv_desc.pad_h_out;
 
     size_t input_libxsmm_len = IWp * IHp * conv_desc.C * conv_desc.N;
     float *input_libxsmm = (float *)libxsmm_aligned_malloc(
