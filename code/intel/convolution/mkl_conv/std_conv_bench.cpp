@@ -342,7 +342,7 @@ static bench_result bench_conv(conv_problem prob, int mode, bool skip_padding)
     conv_desc.filter_format = LIBXSMM_DNN_TENSOR_FORMAT_LIBXSMM;
     conv_desc.fuse_ops = LIBXSMM_DNN_CONV_FUSE_NONE;
     conv_desc.options = LIBXSMM_DNN_CONV_OPTION_NONE;
-    conv_desc.options = LIBXSMM_DNN_CONV_OPTION_WU_EXT_FILTER_REDUCE;
+    // conv_desc.options = LIBXSMM_DNN_CONV_OPTION_WU_EXT_FILTER_REDUCE;
     conv_desc.datatype = LIBXSMM_DNN_DATATYPE_F32;
 
     int IW = conv_desc.W;
