@@ -511,7 +511,7 @@ static bool match_filter_str(const std::string &str, const std::string &filter)
 
 int main(int argc, char **argv)
 {
-    if (argc > 5)
+    if (argc > 6)
         usage();
 
     bool skip_padding = false;
@@ -554,6 +554,15 @@ int main(int argc, char **argv)
     if (argc > 4)
         filter_str = argv[4];
 
+    int minibatch_override = 0;
+    if (argc > 5) {
+        try {
+            minibatch_override = std::stoi(argv[5]);
+        } catch (...) {
+            usage();
+        }
+    }
+
     const char *conv_mode_strs[] = {"FWD", "BWD_F", "BWD_D"};
     const char *skip_padding_strs[]
         = {"w/ padding in flops", "w/o padding in flops"};
@@ -561,9 +570,14 @@ int main(int argc, char **argv)
     for (auto m : enabled_modes) {
         if (!csv_output)
             printf(" %s Convolution\n", conv_mode_strs[m]);
-        for (const auto& p : conv_problems) {
+        for (const auto& p_input : conv_problems) {
+            auto p = p_input;
+
             if (!match_filter_str(p.name, filter_str))
                 continue;
+
+            if (minibatch_override)
+                p.minibatch = minibatch_override;
 
             auto r = bench_conv(p, m, skip_padding);
             if (csv_output)
