@@ -427,7 +427,14 @@ static bench_result bench_conv(conv_problem prob, int mode, bool skip_padding)
     else
         throw std::runtime_error("Invalid benchmarking mode");
 
-    auto result = timeit(prob.iters, calc_flops(skip_padding, prob), [&](){
+    auto flops = calc_flops(skip_padding, prob);
+    if (prob.groups != 1) {
+        printf("[WARNING] libxsmm does not support groups, "
+                "reset the # of groups to 1\n");
+        flops *= prob.groups;
+    }
+
+    auto result = timeit(prob.iters, flops, [&](){
 #ifdef _OPENMP
 #pragma omp parallel
 #endif
