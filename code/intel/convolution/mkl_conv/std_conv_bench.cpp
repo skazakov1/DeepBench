@@ -21,6 +21,7 @@
 #include <stdexcept>
 #include <vector>
 #include <string>
+#include <cstdint>
 
 #ifndef INPUT_H
 #error INPUT_H is not defined
@@ -205,18 +206,33 @@ static bench_result bench_conv(conv_problem prob, int mode, bool skip_padding)
 
     int groups = std::max(1, prob.groups);
 
-    memory::desc src_d({prob.minibatch, prob.ic, prob.w, prob.h},
-            memory::data_type::f32, memory::format::any);
-    memory::desc dst_d({prob.minibatch, prob.oc,
-            calc_out_dim(prob.w, prob.fw, prob.padd, prob.stride),
-            calc_out_dim(prob.h, prob.fh, prob.padd, prob.stride)},
-            memory::data_type::f32, memory::format::any);
     std::vector<int> fsizes
         = {prob.oc / groups, prob.ic / groups, prob.fw, prob.fh};
     if (groups != 1) fsizes.insert(fsizes.begin(), groups);
-    memory::desc filter_d(fsizes, memory::data_type::f32, memory::format::any);
+
+    memory::data_type src_data_type,
+                      dst_data_type,
+                      filter_data_type;
+    if (prob.dtype_input == INT16 && prob.dtype_output == INT32) {
+        src_data_type = memory::data_type::s16;
+        dst_data_type = memory::data_type::s32;
+        filter_data_type = memory::data_type::s16;
+    } else {
+        src_data_type = memory::data_type::f32;
+        dst_data_type = memory::data_type::f32;
+        filter_data_type = memory::data_type::f32;
+    }
+
+    memory::desc src_d({prob.minibatch, prob.ic, prob.w, prob.h},
+        src_data_type, memory::format::any);
+    memory::desc dst_d({prob.minibatch, prob.oc,
+        calc_out_dim(prob.w, prob.fw, prob.padd, prob.stride),
+        calc_out_dim(prob.h, prob.fh, prob.padd, prob.stride)},
+        dst_data_type, memory::format::any);
+    memory::desc filter_d(fsizes, filter_data_type, memory::format::any);
     memory::desc bias_d({prob.oc},
-            memory::data_type::f32, memory::format::any);
+        dst_data_type, memory::format::any);
+
     memory::dims strides = {prob.stride, prob.stride};
     memory::dims padding = {prob.padd, prob.padd};
 
